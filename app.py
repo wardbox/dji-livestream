@@ -1,9 +1,10 @@
-from flask import Flask, render_template, Response
-from djitellopy import Tello
+import ultralytics
 import cv2
+from flask import Flask, render_template, Response, redirect, url_for
+from djitellopy import Tello
 from threading import Thread
 from ultralytics import YOLO
-import ultralytics
+
 
 app = Flask(__name__, template_folder="templates")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -12,7 +13,6 @@ ultralytics.checks()
 model = YOLO("yolov8x.pt")
 
 tello = Tello()
-
 tello.connect()
 
 print(f"Battery: {tello.get_battery()}%")
@@ -30,13 +30,18 @@ def index():
 def generate_frames():
     height, width, _ = tello.get_frame_read().frame.shape
     while True:
-        frame = tello.get_frame_read().frame
-        frame = cv2.resize(frame, (width // 2, height // 2))
-        results = model.predict(frame, conf=0.75, show=True, max_det=15)
-        annotated_frame = results[0].plot()
-        _, jpeg = cv2.imencode(".jpg", annotated_frame)
-        frame = jpeg.tobytes()
-        yield (b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n\r\n")
+        try:
+            frame = tello.get_frame_read().frame
+            frame = cv2.resize(frame, (width // 2, height // 2))
+            results = model.predict(frame, conf=0.25, max_det=15, verbose=False)
+            annotated_frame = results[0].plot()
+            _, jpeg = cv2.imencode(".jpg", annotated_frame)
+            frame = jpeg.tobytes()
+            yield (
+                b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n\r\n"
+            )
+        except:
+            pass
 
 
 recorder = Thread(target=generate_frames)
@@ -52,7 +57,5 @@ def video_feed():
 
 if __name__ == "__main__":
     app.run()
-    tello.streamoff()
-    tello.end()
 
 recorder.join()
